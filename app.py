@@ -19,7 +19,7 @@ FLAGS = {
     'Germany': '🇩🇪', 'Curaçao': '🇨🇼', 'Ivory Coast': '🇨🇮', 'Ecuador': '🇪🇨',
     'Netherlands': '🇳🇱', 'Japan': '🇯🇵', 'Tunisia': '🇹🇳', 'Sweden': '🇸🇪',
     'Belgium': '🇧🇪', 'Egypt': '🇪🇬', 'Iran': '🇮🇷', 'New Zealand': '🇳🇿',
-    'Spain': '🇪🇸', 'Cape Verde': '🇨🇻', 'Saudi Arabia': '🇸🇦', 'Uruguay': '🇾🇺',
+    'Spain': '🇪🇸', 'Cape Verde': '🇨🇻', 'Saudi Arabia': '🇸🇦', 'Uruguay': '🇺🇾',
     'France': '🇫🇷', 'Senegal': '🇸🇳', 'Norway': '🇳🇴', 'Iraq': '🇮🇶',
     'Argentina': '🇦🇷', 'Algeria': '🇩🇿', 'Austria': '🇦🇹', 'Jordan': '🇯🇴',
     'Portugal': '🇵🇹', 'Uzbekistan': '🇺🇿', 'Colombia': '🇨🇴', 'DR Congo': '🇨🇩',
@@ -27,6 +27,7 @@ FLAGS = {
 }
 
 def get_flag(team_name):
+    """Helper function to add a flag emoji to a team name."""
     return f"{FLAGS.get(team_name, '🏳️')} {team_name}"
 
 # 1. GUARANTEED INSTANT UI RENDER
@@ -93,7 +94,7 @@ if "⚠️" in status_message:
 else:
     st.success(status_message)
 
-# 48-Team Field
+# 48-Team Field Definition
 wc_groups = {
     'Group A': ['Mexico', 'South Africa', 'South Korea', 'Czech Republic'],
     'Group B': ['Canada', 'Switzerland', 'Qatar', 'Bosnia and Herzegovina'],
@@ -120,7 +121,7 @@ tab1, tab2, tab3 = st.tabs(["📊 Full Tournament Simulation", "⚔️ Head-to-H
 with tab1:
     st.write("Click below to run a Monte Carlo simulation (Group Stage + 32-Team Knockout).")
     if st.button("🚀 Run Cloud Tournament Simulation", type="primary"):
-        with st.spinner(f"🎲 Simulating {iterations:,} tournaments..."):
+        with st.spinner(f"🎲 Simulating {iterations:,} tournaments... this takes about 5-10 seconds..."):
             hosts = ['United States', 'Mexico', 'Canada'] if host_advantage else []
             championship_counts = {team: 0 for team in all_teams}
             
@@ -128,7 +129,7 @@ with tab1:
                 qualified_top2 = []
                 third_place_pool = []
                 for g_name, teams in wc_groups.items():
-                    table = {t: [0, 0, 0, t] for t in teams} 
+                    table = {t: [0, 0, 0, t] for t in teams} # points, gd, gf, name
                     for i in range(len(teams)):
                         for j in range(i + 1, len(teams)):
                             t1, t2 = teams[i], teams[j]
@@ -137,12 +138,16 @@ with tab1:
                             g1 = np.random.poisson(baseline_goals * np.exp((e1 - e2) / 400))
                             g2 = np.random.poisson(baseline_goals * np.exp((e2 - e1) / 400))
                             
-                            table[t1][1] += (g1 - g2); table[t1][2] += g1
-                            table[t2][1] += (g2 - g1); table[t2][2] += g2
+                            table[t1][1] += (g1 - g2)
+                            table[t1][2] += g1
+                            table[t2][1] += (g2 - g1)
+                            table[t2][2] += g2
                             
                             if g1 > g2: table[t1][0] += 3
                             elif g2 > g1: table[t2][0] += 3
-                            else: table[t1][0] += 1; table[t2][0] += 1
+                            else:
+                                table[t1][0] += 1
+                                table[t2][0] += 1
                     
                     sorted_group = sorted(table.values(), key=lambda x: (x[0], x[1], x[2]), reverse=True)
                     qualified_top2.extend([sorted_group[0][3], sorted_group[1][3]])
@@ -163,29 +168,107 @@ with tab1:
                         winner = t1 if g1 > g2 else (t2 if g2 > g1 else (t1 if random.random() < (e1/(e1+e2)) else t2))
                         next_round.append(winner)
                     current_round = next_round
+                    
                 championship_counts[current_round[0]] += 1
                 
+            # Build Chart Data
             results_df = pd.DataFrame([
-                {"Team": get_flag(team), "Win Probability (%)": (wins / iterations) * 100}
+                {
+                    "Raw Team": team,
+                    "Team": get_flag(team), 
+                    "Win Probability (%)": (wins / iterations) * 100, 
+                    "Elo Rating": int(field_elos[team])
+                }
                 for team, wins in championship_counts.items() if wins > 0
             ]).sort_values(by="Win Probability (%)", ascending=False).reset_index(drop=True)
             
-            fig = px.bar(results_df.head(15), x="Win Probability (%)", y="Team", orientation='h', title=f"Top 15 Title Favorites ({iterations:,} Iterations)")
+            # Map host colors for Plotly
+            color_discrete_map = {get_flag(t): '#e74c3c' if t in hosts else '#3498db' for t in results_df['Raw Team']}
+            
+            fig = px.bar(results_df.head(15), x="Win Probability (%)", y="Team", orientation='h',
+                         color="Team", color_discrete_map=color_discrete_map, text="Win Probability (%)",
+                         title=f"Top 15 Title Favorites ({iterations:,} Iterations)")
+            fig.update_traces(texttemplate='%{text:.2f}%', textposition='outside', showlegend=False)
+            fig.update_layout(yaxis={'categoryorder':'total ascending'})
             st.plotly_chart(fig, use_container_width=True)
+            
+            st.dataframe(results_df[["Team", "Win Probability (%)", "Elo Rating"]], hide_index=True, use_container_width=True)
 
 # ----------------- TAB 2: HEAD TO HEAD -----------------
 with tab2:
     st.subheader("Simulate a Single Knockout Match")
     col1, col2 = st.columns(2)
-    team_a = col1.selectbox("Select Team A", sorted(all_teams), index=all_teams.index("United States"), format_func=get_flag)
-    team_b = col2.selectbox("Select Team B", sorted(all_teams), index=all_teams.index("Argentina"), format_func=get_flag)
-    
-    if st.button("Simulate Match"):
+    with col1:
+        team_a = st.selectbox("Select Team A (Home/Neutral)", sorted(all_teams), index=all_teams.index("United States"), format_func=get_flag)
+    with col2:
+        team_b = st.selectbox("Select Team B (Away)", sorted(all_teams), index=all_teams.index("Argentina"), format_func=get_flag)
+        
+    if team_a != team_b:
         elo_a = field_elos[team_a] + (100 if host_advantage and team_a in ['United States', 'Mexico', 'Canada'] else 0)
         elo_b = field_elos[team_b] + (100 if host_advantage and team_b in ['United States', 'Mexico', 'Canada'] else 0)
-        prob_a = 1 / (1 + 10 ** ((elo_b - elo_a) / 400))
-        st.write(f"### {get_flag(team_a)} {prob_a*100:.1f}% vs {prob_a*100:.1f}% {get_flag(team_b)}")
+        
+        lam_a = baseline_goals * np.exp((elo_a - elo_b) / 400)
+        lam_b = baseline_goals * np.exp((elo_b - elo_a) / 400)
+        
+        st.write(f"**Expected Goals (xG):** {get_flag(team_a)} **{lam_a:.2f}** — **{lam_b:.2f}** {get_flag(team_b)}")
+        
+        sim_a = np.random.poisson(lam_a, size=10000)
+        sim_b = np.random.poisson(lam_b, size=10000)
+        
+        wins_a = np.sum(sim_a > sim_b) / 100
+        draws = np.sum(sim_a == sim_b) / 100
+        wins_b = np.sum(sim_b > sim_a) / 100
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric(f"{get_flag(team_a)} Win", f"{wins_a:.1f}%")
+        c2.metric("90-Min Draw", f"{draws:.1f}%")
+        c3.metric(f"{get_flag(team_b)} Win", f"{wins_b:.1f}%")
+        
+        # Calculate Exact Scorelines
+        st.divider()
+        st.markdown("#### Most Likely Exact Scorelines (90 Mins)")
+        scores_df = pd.DataFrame({'A': sim_a, 'B': sim_b})
+        scores_df['Score'] = scores_df['A'].astype(str) + " - " + scores_df['B'].astype(str)
+        top_scores = scores_df['Score'].value_counts(normalize=True).head(5) * 100
+        
+        sc_cols = st.columns(5)
+        for idx, (score, prob) in enumerate(top_scores.items()):
+            sc_cols[idx].metric(label=score, value=f"{prob:.1f}%")
 
 # ----------------- TAB 3: GROUP STAGE -----------------
 with tab3:
-    st.write("Group Stage simulation placeholder.")
+    st.write("Simulate exactly ONE instance of the group stage to see how points, goals, and tiebreakers play out!")
+    if st.button("🎲 Simulate One Group Stage Draw", type="primary"):
+        hosts = ['United States', 'Mexico', 'Canada'] if host_advantage else []
+        grid_cols = st.columns(3)
+        col_idx = 0
+        
+        for g_name, teams in wc_groups.items():
+            table = {t: [0, 0, 0, 0, 0, t] for t in teams} # pts, gd, gf, ga, matches, name
+            for i in range(len(teams)):
+                for j in range(i + 1, len(teams)):
+                    t1, t2 = teams[i], teams[j]
+                    e1 = field_elos[t1] + (100 if t1 in hosts else 0)
+                    e2 = field_elos[t2] + (100 if t2 in hosts else 0)
+                    g1 = np.random.poisson(baseline_goals * np.exp((e1 - e2) / 400))
+                    g2 = np.random.poisson(baseline_goals * np.exp((e2 - e1) / 400))
+                    
+                    table[t1][4] += 1; table[t2][4] += 1
+                    table[t1][2] += g1; table[t2][2] += g2
+                    table[t1][3] += g2; table[t2][3] += g1
+                    table[t1][1] += (g1 - g2); table[t2][1] += (g2 - g1)
+                    
+                    if g1 > g2: table[t1][0] += 3
+                    elif g2 > g1: table[t2][0] += 3
+                    else: table[t1][0] += 1; table[t2][0] += 1
+            
+            sorted_g = sorted(table.values(), key=lambda x: (x[0], x[1], x[2]), reverse=True)
+            df_group = pd.DataFrame(sorted_g, columns=["Pts", "GD", "GF", "GA", "MP", "Team"])
+            df_group['Team'] = df_group['Team'].apply(get_flag)
+            df_group = df_group[["Team", "MP", "Pts", "GD", "GF", "GA"]]
+            
+            with grid_cols[col_idx % 3]:
+                st.markdown(f"**{g_name}**")
+                st.dataframe(df_group, hide_index=True)
+                st.write("") # spacing
+            col_idx += 1
