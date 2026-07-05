@@ -27,39 +27,17 @@ FLAGS = {
 }
 
 def get_flag(team_name):
-    """Helper function to add a flag emoji to a team name."""
     return f"{FLAGS.get(team_name, '🏳️')} {team_name}"
 
-# 1. GUARANTEED INSTANT UI RENDER
-st.title("🏆 Interactive 2026 World Cup Match & Tournament Predictor")
-st.markdown("Use the controls in the sidebar to configure the Monte Carlo simulation engine and explore matchups live!")
-
-# ==========================================
-# 2. SIDEBAR CONTROLS 
-# ==========================================
-st.sidebar.header("⚙️ Simulation Settings")
-iterations = st.sidebar.slider("Number of Tournament Simulations", min_value=500, max_value=5000, value=1500, step=500)
-host_advantage = st.sidebar.toggle("Enable Host Advantage (+100 Elo)", value=True)
-baseline_goals = st.sidebar.number_input("Baseline Average Goals per Team", min_value=1.0, max_value=2.5, value=1.35, step=0.05)
-
-# ==========================================
-# 3. DEFENSIVE AI ENGINE 
-# ==========================================
+# 1. AI ENGINE
 class EloSystem:
     def __init__(self, fallback=False):
-        self.ratings = {
-            'Spain': 2180, 'Argentina': 2190, 'France': 2188, 'Brazil': 2102, 
-            'England': 2094, 'United States': 1860
-        } if fallback else {}
-
+        self.ratings = {'Spain': 2180, 'Argentina': 2190, 'France': 2188, 'Brazil': 2102, 'England': 2094, 'United States': 1860} if fallback else {}
     def get_rating(self, team):
         if team == 'USA': team = 'United States'
         return self.ratings.get(team, 1500)
-
     def get_k_factor(self, tournament):
-        t_str = str(tournament).lower()
-        return 60 if ('world cup' in t_str and 'qualification' not in t_str) else (40 if 'qualification' in t_str else 20)
-
+        return 60 if ('world cup' in str(tournament).lower() and 'qualification' not in str(tournament).lower()) else 40
     def update_ratings(self, team_a, team_b, goal_a, goal_b, tournament, is_neutral=False):
         if team_a == 'USA': team_a = 'United States'
         if team_b == 'USA': team_b = 'United States'
@@ -67,87 +45,52 @@ class EloSystem:
         k = self.get_k_factor(tournament)
         home_adv = 100 if not is_neutral else 0
         ea = 1 / (1 + 10 ** (((rb - (ra + home_adv))) / 400))
-        eb = 1 - ea
         wa, wb = (1, 0) if goal_a > goal_b else ((0, 1) if goal_a < goal_b else (0.5, 0.5))
-        margin = abs(goal_a - goal_b)
-        g_mult = 1 if margin <= 1 else (1.5 if margin == 2 else (11 + margin) / 8)
+        g_mult = 1 if abs(goal_a - goal_b) <= 1 else 1.5
         self.ratings[team_a] = ra + k * g_mult * (wa - ea)
-        self.ratings[team_b] = rb + k * g_mult * (wb - eb)
+        self.ratings[team_b] = rb + k * g_mult * ((1-wa) - (1-ea))
 
 @st.cache_resource
 def load_and_train_elo():
     csv_filename = "results.csv"
-    if not os.path.exists(csv_filename):
-        return EloSystem(fallback=True), "⚠️ 'results.csv' not found. Running in Safe-Mode!"
-    try:
-        df = pd.read_csv(csv_filename, low_memory=False).dropna(subset=['home_score', 'away_score', 'home_team', 'away_team'])
-        elo = EloSystem(fallback=False)
-        for row in df.itertuples(index=False):
-            elo.update_ratings(row.home_team, row.away_team, int(row.home_score), int(row.away_score), getattr(row, 'tournament', 'Friendly'), is_neutral=row.neutral)
-        return elo, f"✅ Successfully trained AI on {len(df):,} historical matches from results.csv!"
-    except Exception as e:
-        return EloSystem(fallback=True), f"⚠️ Error reading CSV. Switched to Safe-Mode!"
+    if not os.path.exists(csv_filename): return EloSystem(fallback=True), "⚠️ Safe-Mode"
+    df = pd.read_csv(csv_filename, low_memory=False).dropna(subset=['home_score', 'away_score', 'home_team', 'away_team'])
+    elo = EloSystem(fallback=False)
+    for row in df.itertuples(index=False):
+        elo.update_ratings(row.home_team, row.away_team, int(row.home_score), int(row.away_score), getattr(row, 'tournament', 'Friendly'), is_neutral=row.neutral)
+    return elo, df
 
-elo_model, status_message = load_and_train_elo()
-if "⚠️" in status_message:
-    st.warning(status_message)
-else:
-    st.success(status_message)
-
-# 48-Team Field Definition
-wc_groups = {
-    'Group A': ['Mexico', 'South Africa', 'South Korea', 'Czech Republic'],
-    'Group B': ['Canada', 'Switzerland', 'Qatar', 'Bosnia and Herzegovina'],
-    'Group C': ['Brazil', 'Morocco', 'Haiti', 'Scotland'],
-    'Group D': ['United States', 'Paraguay', 'Australia', 'Turkey'],
-    'Group E': ['Germany', 'Curaçao', 'Ivory Coast', 'Ecuador'],
-    'Group F': ['Netherlands', 'Japan', 'Tunisia', 'Sweden'],
-    'Group G': ['Belgium', 'Egypt', 'Iran', 'New Zealand'],
-    'Group H': ['Spain', 'Cape Verde', 'Saudi Arabia', 'Uruguay'],
-    'Group I': ['France', 'Senegal', 'Norway', 'Iraq'],
-    'Group J': ['Argentina', 'Algeria', 'Austria', 'Jordan'],
-    'Group K': ['Portugal', 'Uzbekistan', 'Colombia', 'DR Congo'],
-    'Group L': ['England', 'Croatia', 'Ghana', 'Panama']
-}
-all_teams = [team for group in wc_groups.values() for team in group]
+elo_model, df = load_and_train_elo()
+wc_groups = {'Group A': ['Mexico', 'South Africa', 'South Korea', 'Czech Republic'], 'Group B': ['Canada', 'Switzerland', 'Qatar', 'Bosnia and Herzegovina'], 'Group C': ['Brazil', 'Morocco', 'Haiti', 'Scotland'], 'Group D': ['United States', 'Paraguay', 'Australia', 'Turkey'], 'Group E': ['Germany', 'Curaçao', 'Ivory Coast', 'Ecuador'], 'Group F': ['Netherlands', 'Japan', 'Tunisia', 'Sweden'], 'Group G': ['Belgium', 'Egypt', 'Iran', 'New Zealand'], 'Group H': ['Spain', 'Cape Verde', 'Saudi Arabia', 'Uruguay'], 'Group I': ['France', 'Senegal', 'Norway', 'Iraq'], 'Group J': ['Argentina', 'Algeria', 'Austria', 'Jordan'], 'Group K': ['Portugal', 'Uzbekistan', 'Colombia', 'DR Congo'], 'Group L': ['England', 'Croatia', 'Ghana', 'Panama']}
+all_teams = sorted([team for group in wc_groups.values() for team in group])
 field_elos = {team: elo_model.get_rating(team) for team in all_teams}
 
-# ==========================================
-# 4. INTERACTIVE DASHBOARD TABS
-# ==========================================
+# 2. TABS
 tab1, tab2 = st.tabs(["📊 Full Tournament Simulation", "⚔️ Head-to-Head Matchup Arena"])
 
-# ----------------- TAB 1: MONTE CARLO TOURNAMENT -----------------
 with tab1:
-    st.write("Click below to run a Monte Carlo simulation (Group Stage + 32-Team Knockout).")
-    if st.button("🚀 Run Cloud Tournament Simulation", type="primary"):
-        with st.spinner(f"🎲 Simulating {iterations:,} tournaments... this takes about 5-10 seconds..."):
-            hosts = ['United States', 'Mexico', 'Canada'] if host_advantage else []
+    st.subheader("Monte Carlo Simulation Engine")
+    iterations = st.slider("Number of Simulations", 500, 5000, 1500)
+    if st.button("🚀 Run Full Tournament Simulation"):
+        with st.spinner("Simulating thousands of scenarios..."):
             championship_counts = {team: 0 for team in all_teams}
-            
             for _ in range(iterations):
-                # Simple logic for simulation demonstration
-                winner = random.choice(all_teams) 
+                winner = random.choices(all_teams, weights=[field_elos[t] for t in all_teams])[0]
                 championship_counts[winner] += 1
-                
-            # Build Chart Data
-            results_df = pd.DataFrame([
-                {"Team": get_flag(team), "Win Probability (%)": (wins / iterations) * 100}
-                for team, wins in championship_counts.items() if wins > 0
-            ]).sort_values(by="Win Probability (%)", ascending=False).reset_index(drop=True)
             
-            fig = px.bar(results_df.head(15), x="Win Probability (%)", y="Team", orientation='h',
-                         title=f"Top 15 Title Favorites ({iterations:,} Iterations)")
+            results_df = pd.DataFrame([{"Team": get_flag(team), "Win Probability (%)": (wins / iterations) * 100} 
+                                      for team, wins in championship_counts.items()]).sort_values(by="Win Probability (%)", ascending=False)
+            
+            fig = px.bar(results_df.head(15), x="Win Probability (%)", y="Team", orientation='h', title="Top 15 Favorites")
             st.plotly_chart(fig, use_container_width=True)
 
-# ----------------- TAB 2: HEAD TO HEAD -----------------
 with tab2:
     st.subheader("Simulate a Single Knockout Match")
     col1, col2 = st.columns(2)
-    with col1:
-        team_a = st.selectbox("Select Team A (Home/Neutral)", sorted(all_teams), index=all_teams.index("United States"), format_func=get_flag)
-    with col2:
-        team_b = st.selectbox("Select Team B (Away)", sorted(all_teams), index=all_teams.index("Argentina"), format_func=get_flag)
-        
+    team_a = col1.selectbox("Team A", all_teams, format_func=get_flag)
+    team_b = col2.selectbox("Team B", all_teams, format_func=get_flag)
+    
     if st.button("Simulate Match"):
-        st.write(f"Simulating match between {team_a} and {team_b}...")
+        prob_a = 1 / (1 + 10 ** ((field_elos[team_b] - field_elos[team_a]) / 400))
+        winner = team_a if random.random() < prob_a else team_b
+        st.write(f"### Result: {get_flag(winner)} wins!")
