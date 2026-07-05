@@ -19,7 +19,7 @@ FLAGS = {
     'Germany': '🇩🇪', 'Curaçao': '🇨🇼', 'Ivory Coast': '🇨🇮', 'Ecuador': '🇪🇨',
     'Netherlands': '🇳🇱', 'Japan': '🇯🇵', 'Tunisia': '🇹🇳', 'Sweden': '🇸🇪',
     'Belgium': '🇧🇪', 'Egypt': '🇪🇬', 'Iran': '🇮🇷', 'New Zealand': '🇳🇿',
-    'Spain': '🇪🇸', 'Cape Verde': '🇨🇻', 'Saudi Arabia': '🇸🇦', 'Uruguay': '🇺🇾',
+    'Spain': '🇪🇸', 'Cape Verde': '🇨🇻', 'Saudi Arabia': '🇸🇦', 'Uruguay': '🇾🇺',
     'France': '🇫🇷', 'Senegal': '🇸🇳', 'Norway': '🇳🇴', 'Iraq': '🇮🇶',
     'Argentina': '🇦🇷', 'Algeria': '🇩🇿', 'Austria': '🇦🇹', 'Jordan': '🇯🇴',
     'Portugal': '🇵🇹', 'Uzbekistan': '🇺🇿', 'Colombia': '🇨🇴', 'DR Congo': '🇨🇩',
@@ -29,7 +29,9 @@ FLAGS = {
 def get_flag(team_name):
     return f"{FLAGS.get(team_name, '🏳️')} {team_name}"
 
+# ==========================================
 # 1. AI ENGINE
+# ==========================================
 class EloSystem:
     def __init__(self, fallback=False):
         self.ratings = {'Spain': 2180, 'Argentina': 2190, 'France': 2188, 'Brazil': 2102, 'England': 2094, 'United States': 1860} if fallback else {}
@@ -43,8 +45,7 @@ class EloSystem:
         if team_b == 'USA': team_b = 'United States'
         ra, rb = self.get_rating(team_a), self.get_rating(team_b)
         k = self.get_k_factor(tournament)
-        home_adv = 100 if not is_neutral else 0
-        ea = 1 / (1 + 10 ** (((rb - (ra + home_adv))) / 400))
+        ea = 1 / (1 + 10 ** ((rb - ra) / 400))
         wa, wb = (1, 0) if goal_a > goal_b else ((0, 1) if goal_a < goal_b else (0.5, 0.5))
         g_mult = 1 if abs(goal_a - goal_b) <= 1 else 1.5
         self.ratings[team_a] = ra + k * g_mult * (wa - ea)
@@ -53,44 +54,57 @@ class EloSystem:
 @st.cache_resource
 def load_and_train_elo():
     csv_filename = "results.csv"
-    if not os.path.exists(csv_filename): return EloSystem(fallback=True), "⚠️ Safe-Mode"
+    if not os.path.exists(csv_filename): return EloSystem(fallback=True), None
     df = pd.read_csv(csv_filename, low_memory=False).dropna(subset=['home_score', 'away_score', 'home_team', 'away_team'])
     elo = EloSystem(fallback=False)
     for row in df.itertuples(index=False):
-        elo.update_ratings(row.home_team, row.away_team, int(row.home_score), int(row.away_score), getattr(row, 'tournament', 'Friendly'), is_neutral=row.neutral)
+        elo.update_ratings(row.home_team, row.away_team, int(row.home_score), int(row.away_score), getattr(row, 'tournament', 'Friendly'))
     return elo, df
 
-elo_model, df = load_and_train_elo()
+elo_model, _ = load_and_train_elo()
 wc_groups = {'Group A': ['Mexico', 'South Africa', 'South Korea', 'Czech Republic'], 'Group B': ['Canada', 'Switzerland', 'Qatar', 'Bosnia and Herzegovina'], 'Group C': ['Brazil', 'Morocco', 'Haiti', 'Scotland'], 'Group D': ['United States', 'Paraguay', 'Australia', 'Turkey'], 'Group E': ['Germany', 'Curaçao', 'Ivory Coast', 'Ecuador'], 'Group F': ['Netherlands', 'Japan', 'Tunisia', 'Sweden'], 'Group G': ['Belgium', 'Egypt', 'Iran', 'New Zealand'], 'Group H': ['Spain', 'Cape Verde', 'Saudi Arabia', 'Uruguay'], 'Group I': ['France', 'Senegal', 'Norway', 'Iraq'], 'Group J': ['Argentina', 'Algeria', 'Austria', 'Jordan'], 'Group K': ['Portugal', 'Uzbekistan', 'Colombia', 'DR Congo'], 'Group L': ['England', 'Croatia', 'Ghana', 'Panama']}
 all_teams = sorted([team for group in wc_groups.values() for team in group])
 field_elos = {team: elo_model.get_rating(team) for team in all_teams}
 
+# ==========================================
 # 2. TABS
+# ==========================================
 tab1, tab2 = st.tabs(["📊 Full Tournament Simulation", "⚔️ Head-to-Head Matchup Arena"])
 
 with tab1:
     st.subheader("Monte Carlo Simulation Engine")
     iterations = st.slider("Number of Simulations", 500, 5000, 1500)
     if st.button("🚀 Run Full Tournament Simulation"):
-        with st.spinner("Simulating thousands of scenarios..."):
-            championship_counts = {team: 0 for team in all_teams}
+        with st.spinner("Simulating..."):
+            counts = {team: 0 for team in all_teams}
             for _ in range(iterations):
                 winner = random.choices(all_teams, weights=[field_elos[t] for t in all_teams])[0]
-                championship_counts[winner] += 1
-            
-            results_df = pd.DataFrame([{"Team": get_flag(team), "Win Probability (%)": (wins / iterations) * 100} 
-                                      for team, wins in championship_counts.items()]).sort_values(by="Win Probability (%)", ascending=False)
-            
+                counts[winner] += 1
+            results_df = pd.DataFrame([{"Team": get_flag(team), "Win Probability (%)": (wins / iterations) * 100} for team, wins in counts.items()]).sort_values(by="Win Probability (%)", ascending=False)
             fig = px.bar(results_df.head(15), x="Win Probability (%)", y="Team", orientation='h', title="Top 15 Favorites")
             st.plotly_chart(fig, use_container_width=True)
 
 with tab2:
     st.subheader("Simulate a Single Knockout Match")
     col1, col2 = st.columns(2)
-    team_a = col1.selectbox("Team A", all_teams, format_func=get_flag)
-    team_b = col2.selectbox("Team B", all_teams, format_func=get_flag)
+    t1 = col1.selectbox("Team A", all_teams, format_func=get_flag)
+    t2 = col2.selectbox("Team B", all_teams, format_func=get_flag)
     
     if st.button("Simulate Match"):
-        prob_a = 1 / (1 + 10 ** ((field_elos[team_b] - field_elos[team_a]) / 400))
-        winner = team_a if random.random() < prob_a else team_b
-        st.write(f"### Result: {get_flag(winner)} wins!")
+        # Calculate Probabilities
+        elo_a = field_elos[t1]
+        elo_b = field_elos[t2]
+        
+        # Expected scores based on Elo difference
+        prob_a = 1 / (1 + 10 ** ((elo_b - elo_a) / 400))
+        prob_b = 1 - prob_a
+        
+        # Display Results
+        c1, c2, c3 = st.columns(3)
+        c1.metric(f"{get_flag(t1)} Win", f"{prob_a*100:.1f}%")
+        c2.metric("Draw", "—")
+        c3.metric(f"{get_flag(t2)} Win", f"{prob_b*100:.1f}%")
+        
+        # Simple Outcome
+        winner = t1 if random.random() < prob_a else t2
+        st.write(f"### Predicted Winner: {get_flag(winner)}")
