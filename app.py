@@ -4,16 +4,38 @@ import numpy as np
 import plotly.express as px
 import random
 import os
-from datetime import datetime, timedelta
 
 # Set web page configuration
-st.set_page_config(page_title="2026 World Cup Predictor", page_icon="⚽", layout="wide")
+st.set_page_config(page_title="2026 World Cup Predictor", page_icon="🏆", layout="wide")
 
+# ==========================================
+# 0. UI HELPERS & EMOJI DICTIONARY
+# ==========================================
+FLAGS = {
+    'Mexico': '🇲🇽', 'South Africa': '🇿🇦', 'South Korea': '🇰🇷', 'Czech Republic': '🇨🇿',
+    'Canada': '🇨🇦', 'Switzerland': '🇨🇭', 'Qatar': '🇶🇦', 'Bosnia and Herzegovina': '🇧🇦',
+    'Brazil': '🇧🇷', 'Morocco': '🇲🇦', 'Haiti': '🇭🇹', 'Scotland': '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
+    'United States': '🇺🇸', 'Paraguay': '🇵🇾', 'Australia': '🇦🇺', 'Turkey': '🇹🇷',
+    'Germany': '🇩🇪', 'Curaçao': '🇨🇼', 'Ivory Coast': '🇨🇮', 'Ecuador': '🇪🇨',
+    'Netherlands': '🇳🇱', 'Japan': '🇯🇵', 'Tunisia': '🇹🇳', 'Sweden': '🇸🇪',
+    'Belgium': '🇧🇪', 'Egypt': '🇪🇬', 'Iran': '🇮🇷', 'New Zealand': '🇳🇿',
+    'Spain': '🇪🇸', 'Cape Verde': '🇨🇻', 'Saudi Arabia': '🇸🇦', 'Uruguay': '🇺🇾',
+    'France': '🇫🇷', 'Senegal': '🇸🇳', 'Norway': '🇳🇴', 'Iraq': '🇮🇶',
+    'Argentina': '🇦🇷', 'Algeria': '🇩🇿', 'Austria': '🇦🇹', 'Jordan': '🇯🇴',
+    'Portugal': '🇵🇹', 'Uzbekistan': '🇺🇿', 'Colombia': '🇨🇴', 'DR Congo': '🇨🇩',
+    'England': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'Croatia': '🇭🇷', 'Ghana': '🇬🇭', 'Panama': '🇵🇦'
+}
+
+def get_flag(team_name):
+    """Helper function to add a flag emoji to a team name."""
+    return f"{FLAGS.get(team_name, '🏳️')} {team_name}"
+
+# 1. GUARANTEED INSTANT UI RENDER
 st.title("🏆 Interactive 2026 World Cup Match & Tournament Predictor")
 st.markdown("Use the controls in the sidebar to configure the Monte Carlo simulation engine and explore matchups live!")
 
 # ==========================================
-# SIDEBAR CONTROLS 
+# 2. SIDEBAR CONTROLS 
 # ==========================================
 st.sidebar.header("⚙️ Simulation Settings")
 iterations = st.sidebar.slider("Number of Tournament Simulations", min_value=500, max_value=5000, value=1500, step=500)
@@ -21,7 +43,7 @@ host_advantage = st.sidebar.toggle("Enable Host Advantage (+100 Elo)", value=Tru
 baseline_goals = st.sidebar.number_input("Baseline Average Goals per Team", min_value=1.0, max_value=2.5, value=1.35, step=0.05)
 
 # ==========================================
-# DEFENSIVE AI ENGINE 
+# 3. DEFENSIVE AI ENGINE 
 # ==========================================
 class EloSystem:
     def __init__(self, fallback=False):
@@ -67,10 +89,12 @@ def load_and_train_elo():
         return EloSystem(fallback=True), f"⚠️ Error reading CSV. Switched to Safe-Mode!"
 
 elo_model, status_message = load_and_train_elo()
-if "⚠️" in status_message: st.warning(status_message)
-else: st.success(status_message)
+if "⚠️" in status_message:
+    st.warning(status_message)
+else:
+    st.success(status_message)
 
-# 48-Team Field
+# 48-Team Field Definition
 wc_groups = {
     'Group A': ['Mexico', 'South Africa', 'South Korea', 'Czech Republic'],
     'Group B': ['Canada', 'Switzerland', 'Qatar', 'Bosnia and Herzegovina'],
@@ -89,38 +113,41 @@ all_teams = [team for group in wc_groups.values() for team in group]
 field_elos = {team: elo_model.get_rating(team) for team in all_teams}
 
 # ==========================================
-# TABS
+# 4. INTERACTIVE DASHBOARD TABS
 # ==========================================
-tab1, tab2, tab3 = st.tabs(["📊 Full Tournament Simulation", "⚔️ Head-to-Head Matchup Arena", "📅 Tournament Schedule"])
+tab1, tab2 = st.tabs(["📊 Full Tournament Simulation", "⚔️ Head-to-Head Matchup Arena"])
 
+# ----------------- TAB 1: MONTE CARLO TOURNAMENT -----------------
 with tab1:
     st.write("Click below to run a Monte Carlo simulation (Group Stage + 32-Team Knockout).")
     if st.button("🚀 Run Cloud Tournament Simulation", type="primary"):
-        with st.spinner("🎲 Simulating..."):
+        with st.spinner(f"🎲 Simulating {iterations:,} tournaments... this takes about 5-10 seconds..."):
             hosts = ['United States', 'Mexico', 'Canada'] if host_advantage else []
             championship_counts = {team: 0 for team in all_teams}
+            
             for _ in range(iterations):
-                # Simple logic for simulation
+                # Simple logic for simulation demonstration
                 winner = random.choice(all_teams) 
                 championship_counts[winner] += 1
+                
+            # Build Chart Data
+            results_df = pd.DataFrame([
+                {"Team": get_flag(team), "Win Probability (%)": (wins / iterations) * 100}
+                for team, wins in championship_counts.items() if wins > 0
+            ]).sort_values(by="Win Probability (%)", ascending=False).reset_index(drop=True)
             
-            results_df = pd.DataFrame([{"Team": team, "Win Probability (%)": (wins / iterations) * 100} for team, wins in championship_counts.items()]).sort_values(by="Win Probability (%)", ascending=False)
-            fig = px.bar(results_df.head(15), x="Win Probability (%)", y="Team", orientation='h', title="Top 15 Title Favorites")
+            fig = px.bar(results_df.head(15), x="Win Probability (%)", y="Team", orientation='h',
+                         title=f"Top 15 Title Favorites ({iterations:,} Iterations)")
             st.plotly_chart(fig, use_container_width=True)
 
+# ----------------- TAB 2: HEAD TO HEAD -----------------
 with tab2:
     st.subheader("Simulate a Single Knockout Match")
     col1, col2 = st.columns(2)
-    t1 = col1.selectbox("Team A", sorted(all_teams))
-    t2 = col2.selectbox("Team B", sorted(all_teams))
+    with col1:
+        team_a = st.selectbox("Select Team A (Home/Neutral)", sorted(all_teams), index=all_teams.index("United States"), format_func=get_flag)
+    with col2:
+        team_b = st.selectbox("Select Team B (Away)", sorted(all_teams), index=all_teams.index("Argentina"), format_func=get_flag)
+        
     if st.button("Simulate Match"):
-        st.write(f"Simulating match between {t1} and {t2}...")
-
-with tab3:
-    st.subheader("Tournament Schedule")
-    # Generating the schedule
-    start_date = datetime(2026, 6, 11)
-    match_list = []
-    for i in range(20):
-        match_list.append({"Date": (start_date + timedelta(days=i)).strftime("%Y-%m-%d"), "Match": f"Match {i+1}", "Status": "Scheduled"})
-    st.table(pd.DataFrame(match_list))
+        st.write(f"Simulating match between {team_a} and {team_b}...")
